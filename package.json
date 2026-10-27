@@ -1,0 +1,20 @@
+{
+  "name": "globetalk",
+  "version": "1.0.0",
+  "description": "GlobeTalk — 24/7 Virtual Language Cafe. Real-time browser-based social voice chat platform for global language exchange.",
+  "scripts": {
+    "server": "npm run dev --prefix server",
+    "client": "npm run dev --prefix client",
+    "build": "npm run build --prefix client && npm run build --prefix server"
+  },
+  "keywords": [
+    "webrtc",
+    "socketio",
+    "react",
+    "voice-chat",
+    "language-exchange",
+    "globetalk"
+  ],
+  "author": "GlobeTalk Team",
+  "license": "MIT"
+}

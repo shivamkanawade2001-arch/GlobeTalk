@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: globetalk-backend
+    env: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 3001
+      - key: CLIENT_URL
+        value: "*"

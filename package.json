@@ -3,9 +3,10 @@
   "version": "1.0.0",
   "description": "GlobeTalk — 24/7 Virtual Language Cafe. Real-time browser-based social voice chat platform for global language exchange.",
   "scripts": {
+    "build": "cd client && npm install && npm run build && cd ../server && npm install && npm run build",
+    "start": "node server/dist/index.js",
     "server": "npm run dev --prefix server",
-    "client": "npm run dev --prefix client",
-    "build": "npm run build --prefix client && npm run build --prefix server"
+    "client": "npm run dev --prefix client"
   },
   "keywords": [
     "webrtc",

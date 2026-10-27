@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --color-brand: #6C63FF;
+    --color-brand-dark: #4F46E5;
+    --color-surface: #0F0F1A;
+    --color-surface-2: #1A1A2E;
+    --color-surface-3: #252540;
+    --color-border: rgba(255,255,255,0.08);
+  }
+  body {
+    @apply bg-[#0F0F1A] text-white antialiased;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    background-image: radial-gradient(ellipse at 20% 50%, rgba(108, 99, 255, 0.07) 0%, transparent 50%),
+                      radial-gradient(ellipse at 80% 20%, rgba(99, 179, 237, 0.05) 0%, transparent 50%);
+    background-attachment: fixed;
+  }
+  * { box-sizing: border-box; }
+}
+
+@layer utilities {
+  .glass {
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  .glass-hover:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255,255,255,0.15);
+  }
+  .glow-brand {
+    box-shadow: 0 0 20px rgba(108, 99, 255, 0.4), 0 0 60px rgba(108, 99, 255, 0.15);
+  }
+  .glow-green {
+    box-shadow: 0 0 15px rgba(52, 211, 153, 0.5), 0 0 40px rgba(52, 211, 153, 0.2);
+  }
+  .speaking-ring {
+    animation: speakingPulse 1s ease-in-out infinite;
+  }
+  .gradient-brand {
+    background: linear-gradient(135deg, #6C63FF 0%, #4F46E5 100%);
+  }
+  .text-gradient {
+    background: linear-gradient(135deg, #6C63FF, #60a5fa, #34d399);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+}
+
+@keyframes speakingPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.7), 0 0 0 4px rgba(52, 211, 153, 0.3); }
+  50% { box-shadow: 0 0 0 6px rgba(52, 211, 153, 0.0), 0 0 0 12px rgba(52, 211, 153, 0.0); }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.35s ease forwards;
+}
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }

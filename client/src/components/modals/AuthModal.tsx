@@ -13,7 +13,51 @@ interface AuthModalProps {
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const setUser = useAuthStore((s) => s.setUser);
   const [activeTab, setActiveTab] = useState<'quick' | 'guest'>('quick');
-  const [guestName, setGuestName] = useState('');
+  const [showConfigInput, setShowConfigInput] = useState(false);
+  const [configJson, setConfigJson] = useState('');
+
+  const handleSaveFirebaseConfig = (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      // Try to parse full firebaseConfig object if pasted
+      let apiKey = '';
+      let projectId = '';
+      let authDomain = '';
+      let appId = '';
+
+      if (configJson.includes('{')) {
+        // extract json-like or JS object properties
+        const extractProp = (key: string) => {
+          const m = configJson.match(new RegExp(`${key}["'\\s]*:?["'\\s]*([^"',\\s}]+)`));
+          return m ? m[1].replace(/["']/g, '').trim() : '';
+        };
+        apiKey = extractProp('apiKey');
+        projectId = extractProp('projectId');
+        authDomain = extractProp('authDomain');
+        appId = extractProp('appId');
+      } else {
+        apiKey = configJson.trim();
+        projectId = 'globetalk';
+      }
+
+      if (!apiKey || apiKey.length < 15) {
+        setErrorMsg('Please paste a valid Firebase config or API Key.');
+        return;
+      }
+
+      localStorage.setItem('GLOBETALK_VITE_FIREBASE_API_KEY', apiKey);
+      if (projectId) localStorage.setItem('GLOBETALK_VITE_FIREBASE_PROJECT_ID', projectId);
+      if (authDomain) localStorage.setItem('GLOBETALK_VITE_FIREBASE_AUTH_DOMAIN', authDomain);
+      if (appId) localStorage.setItem('GLOBETALK_VITE_FIREBASE_APP_ID', appId);
+
+      setShowConfigInput(false);
+      setErrorMsg(null);
+      // Attempt login immediately with new config
+      handleGoogleSignIn();
+    } catch {
+      setErrorMsg('Could not parse Firebase config. Please paste the object copied from Firebase Console.');
+    }
+  };
   const [nativeLang, setNativeLang] = useState('English');
   const [learningLang, setLearningLang] = useState('Spanish');
   const [loading, setLoading] = useState(false);
@@ -203,8 +247,45 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         </button>
 
         {errorMsg && (
-          <div className="mt-3 p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-xs text-amber-200">
-            {errorMsg}
+          <div className="mt-3 p-3 rounded-xl bg-amber-500/15 border border-amber-500/30 text-xs text-amber-200">
+            <p className="leading-relaxed">{errorMsg}</p>
+            {!showConfigInput ? (
+              <button
+                type="button"
+                onClick={() => setShowConfigInput(true)}
+                className="mt-2 inline-flex items-center gap-1.5 font-semibold text-amber-300 hover:text-white underline cursor-pointer"
+              >
+                ⚙️ Click here to paste Firebase Web Config (2-min free setup)
+              </button>
+            ) : (
+              <form onSubmit={handleSaveFirebaseConfig} className="mt-3 space-y-2 border-t border-amber-500/20 pt-2">
+                <p className="text-[11px] text-amber-300">
+                  Paste the <code>firebaseConfig</code> object from Firebase Console (Project Settings ➔ General ➔ Your apps):
+                </p>
+                <textarea
+                  rows={4}
+                  value={configJson}
+                  onChange={(e) => setConfigJson(e.target.value)}
+                  placeholder={`const firebaseConfig = {\n  apiKey: "AIzaSy...",\n  projectId: "globetalk-...",\n  ...\n};`}
+                  className="w-full p-2 rounded-lg bg-black/40 border border-amber-500/30 text-[11px] font-mono text-white placeholder-white/30 focus:outline-none focus:border-amber-400"
+                />
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    className="flex-1 py-1.5 px-3 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-semibold text-xs transition"
+                  >
+                    Save & Sign In with Google
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowConfigInput(false)}
+                    className="py-1.5 px-3 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs transition"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         )}
 

@@ -4,7 +4,9 @@ let socket: Socket | null = null;
 
 export function getSocket(): Socket {
   if (!socket) {
-    const serverUrl = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
+    const serverUrl =
+      import.meta.env.VITE_SERVER_URL ||
+      (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3001');
     socket = io(serverUrl, {
       autoConnect: true,
       transports: ['websocket', 'polling'],

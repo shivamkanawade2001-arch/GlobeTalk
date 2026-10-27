@@ -1,6 +1,15 @@
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, Auth } from 'firebase/auth';
 
+const DEFAULT_FIREBASE_CONFIG: Record<string, string> = {
+  VITE_FIREBASE_API_KEY: 'AIzaSyDm13zGCqJP2Ntn3nJ3r4nxwOMYpVM-TIc',
+  VITE_FIREBASE_AUTH_DOMAIN: 'globetalk-f83d4.firebaseapp.com',
+  VITE_FIREBASE_PROJECT_ID: 'globetalk-f83d4',
+  VITE_FIREBASE_STORAGE_BUCKET: 'globetalk-f83d4.firebasestorage.app',
+  VITE_FIREBASE_MESSAGING_SENDER_ID: '327271905813',
+  VITE_FIREBASE_APP_ID: '1:327271905813:web:f30c9d843a5d17c9d16c1c',
+};
+
 function getEnv(key: string): string {
   if (typeof window !== 'undefined') {
     // 1. Check runtime window.__GLOBETALK_ENV__ from server
@@ -14,8 +23,8 @@ function getEnv(key: string): string {
       return localVal;
     }
   }
-  // 3. Fallback to Vite build-time env
-  return (import.meta as any).env?.[key] || '';
+  // 3. Fallback to Vite build-time env or configured defaults
+  return (import.meta as any).env?.[key] || DEFAULT_FIREBASE_CONFIG[key] || '';
 }
 
 export function isFirebaseConfigured(): boolean {

@@ -161,12 +161,18 @@ app.post('/api/users', (req, res) => {
 
 // Serve client static dist bundle
 const possibleDistPaths = [
+  path.resolve(__dirname, '../public'),
+  path.resolve(__dirname, './public'),
+  path.resolve(process.cwd(), 'public'),
+  path.resolve(process.cwd(), 'server/public'),
   path.resolve(__dirname, '../../client/dist'),
   path.resolve(__dirname, '../client/dist'),
   path.resolve(process.cwd(), 'client/dist'),
   path.resolve(process.cwd(), '../client/dist'),
 ];
-const clientDistPath = possibleDistPaths.find((p) => fs.existsSync(p)) || possibleDistPaths[0];
+const clientDistPath =
+  possibleDistPaths.find((p) => fs.existsSync(p) && fs.existsSync(path.join(p, 'index.html'))) ||
+  possibleDistPaths[0];
 
 if (fs.existsSync(clientDistPath)) {
   app.use(express.static(clientDistPath));

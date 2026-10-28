@@ -44,12 +44,26 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
   if (!isOpen) return null;
 
   const quickTopicSuggestions = [
-    'IELTS / TOEFL Speaking Part 2 & 3 Practice',
-    'Casual Coffee Chat & Culture Exchange ☕',
-    'Daily News & Global Affairs Discussion',
-    'Travel Stories & Dream Vacation Spots ✈️',
-    'Job Interview & Professional Presentation Prep',
-    'Beginner Friendly Pronunciation & Vocab Clinic',
+    {
+      title: '💼 Job Interview & Self-Introduction Practice',
+      topic: 'Introduce yourself, your college degree, and your career goals!',
+    },
+    {
+      title: '🗣️ Overcome Hesitation: Spoken English for Beginners',
+      topic: 'Speak freely without fear of grammar mistakes. Describe your day!',
+    },
+    {
+      title: '🎓 Campus Placement GD: Tech vs Human Jobs',
+      topic: 'Will AI take away fresh graduate jobs or create new opportunities?',
+    },
+    {
+      title: '🇮🇳 Hindi to English Fluency Practice',
+      topic: 'Practice translating thoughts from your native language into simple English.',
+    },
+    {
+      title: '☕ Casual Friendly Chit-Chat & Daily Life',
+      topic: 'Share an interesting custom, festival, or food from your hometown!',
+    },
   ];
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -160,17 +174,25 @@ export const CreateRoomModal: React.FC<CreateRoomModalProps> = ({
             />
 
             {/* Quick Topic Prompts */}
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {quickTopicSuggestions.slice(0, 3).map((suggestion) => (
-                <button
-                  type="button"
-                  key={suggestion}
-                  onClick={() => setTitle(suggestion)}
-                  className="text-[10px] px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white/90 border border-white/5 transition"
-                >
-                  + {suggestion}
-                </button>
-              ))}
+            <div className="mt-2 space-y-1.5">
+              <span className="text-[10px] font-semibold text-emerald-400 block">
+                ⚡ 1-Click Practice Room Ideas:
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {quickTopicSuggestions.map((s) => (
+                  <button
+                    type="button"
+                    key={s.title}
+                    onClick={() => {
+                      setTitle(s.title);
+                      setTopicPrompt(s.topic);
+                    }}
+                    className="text-[10px] px-2.5 py-1 rounded-lg bg-white/5 hover:bg-emerald-500/20 text-white/70 hover:text-emerald-300 border border-white/5 hover:border-emerald-500/30 transition text-left cursor-pointer"
+                  >
+                    + {s.title}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 

@@ -120,10 +120,32 @@ export function setupSocketHandlers(io: Server) {
 
       // Send initial room state & message history to joiner
       const history = roomMessages.get(roomId) || [];
+      const peers = room.participants
+        .filter((p) => p.socketId !== socket.id && !p.socketId.startsWith('mock-'))
+        .map((p) => ({
+          socketId: p.socketId,
+          uid: p.uid,
+          displayName: p.displayName,
+          photoURL: p.photoURL,
+          isMuted: p.isMuted,
+          isSpeaking: p.isSpeaking,
+        }));
+
       socket.emit('room:joined', {
         room,
         messages: history,
-        peers: room.participants.filter((p) => p.socketId !== socket.id),
+        peers,
+      });
+
+      // Explicitly send room:peers to joiner for WebRTC peer connections
+      socket.emit('room:peers', { peers });
+
+      // Notify all other peers in the room that a new peer joined
+      socket.to(roomId).emit('room:peer-joined', {
+        socketId: socket.id,
+        uid: session.uid,
+        displayName: session.displayName,
+        photoURL: session.photoURL,
       });
 
       // Broadcast updated room state to all members in room

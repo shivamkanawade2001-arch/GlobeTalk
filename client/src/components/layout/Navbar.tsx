@@ -49,15 +49,15 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div>
               <div className="flex items-center gap-1.5">
                 <span className="text-lg font-black text-white tracking-tight">
-                  Globe<span className="text-gradient">Talk</span>
+                  Globe<span className="text-emerald-400">Talk</span>
                 </span>
                 <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                  24/7 Live
+                  Free Spoken English
                 </span>
               </div>
               <p className="text-[10px] text-white/50 tracking-wide hidden sm:block">
-                The 24/7 Virtual Language Cafe
+                Live Peer-to-Peer Speaking Practice
               </p>
             </div>
           </div>
@@ -81,11 +81,11 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Create Room Button */}
           <button
             onClick={onOpenCreateRoom}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl font-bold text-xs bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-lg shadow-indigo-600/25 transition active:scale-95"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-bold text-xs bg-emerald-500 hover:bg-emerald-400 text-black shadow-md shadow-emerald-500/20 transition active:scale-95 cursor-pointer"
           >
             <Plus className="w-4 h-4 stroke-[3]" />
-            <span className="hidden sm:inline">Create a New Group</span>
-            <span className="sm:hidden">Create</span>
+            <span className="hidden sm:inline">Start Practice Room</span>
+            <span className="sm:hidden">Start Room</span>
           </button>
 
           {/* Friends Presence Toggle */}

@@ -20,6 +20,7 @@ export function useWebRTC(roomId: string | undefined) {
   const {
     isMuted,
     isDeafened,
+    setMuted,
     setLocalStream,
     updateParticipantSpeaking,
     updateParticipantMute,
@@ -39,7 +40,7 @@ export function useWebRTC(roomId: string | undefined) {
   const flushCandidates = useCallback(async (peerSocketId: string, pc: RTCPeerConnection) => {
     const queued = candidateQueue.current.get(peerSocketId) || [];
     if (queued.length > 0) {
-      console.log(`[WebRTC] Flushing ${queued.length} queued ICE candidates for ${peerSocketId}`);
+      console.log(`[WebRTC] 🌊 Flushing ${queued.length} queued ICE candidates for ${peerSocketId}`);
       for (const candidate of queued) {
         try {
           await pc.addIceCandidate(new RTCIceCandidate(candidate));
@@ -51,22 +52,30 @@ export function useWebRTC(roomId: string | undefined) {
     }
   }, []);
 
-  // ── 1. Create Peer Connection ───────────────────────────────────────────────
+  // ── 1. Create Peer Connection (Phone-Call Full Duplex Style) ─────────────────
   const createPeerConnection = useCallback((peerSocketId: string, isInitiator: boolean) => {
     if (peerConnections.current.has(peerSocketId)) {
       return peerConnections.current.get(peerSocketId)!;
     }
 
-    console.log(`[WebRTC] Creating peer connection with ${peerSocketId} (initiator: ${isInitiator})`);
+    console.log(`[WebRTC] 📞 Setting up full-duplex phone call connection with ${peerSocketId} (initiator: ${isInitiator})`);
     const pc = new RTCPeerConnection(ICE_SERVERS);
     peerConnections.current.set(peerSocketId, pc);
 
-    // Add local tracks if available
+    // Standard Full-Duplex WebRTC (Phone Call Style):
+    // Use an explicit sendrecv audio transceiver so both parties continuously send & receive
     if (localStreamRef.current) {
-      localStreamRef.current.getAudioTracks().forEach((track) => {
-        console.log(`[WebRTC] Adding local track to ${peerSocketId}, enabled: ${track.enabled}`);
-        pc.addTrack(track, localStreamRef.current!);
-      });
+      const track = localStreamRef.current.getAudioTracks()[0];
+      if (track) {
+        console.log(`[WebRTC] Attaching local mic track to ${peerSocketId}`);
+        pc.addTransceiver(track, {
+          direction: 'sendrecv',
+          streams: [localStreamRef.current],
+        });
+      }
+    } else {
+      // If mic is still spinning up, declare sendrecv direction ahead of time
+      pc.addTransceiver('audio', { direction: 'sendrecv' });
     }
 
     // Handle ICE candidates
@@ -79,9 +88,9 @@ export function useWebRTC(roomId: string | undefined) {
       }
     };
 
-    // Handle remote track
+    // Handle incoming remote audio track (continuous phone call playback)
     pc.ontrack = (event) => {
-      console.log(`[WebRTC] 🔊 Received remote track from ${peerSocketId}`, event);
+      console.log(`[WebRTC] 🔊 Received remote audio track from ${peerSocketId}`);
       const stream = event.streams && event.streams[0] ? event.streams[0] : new MediaStream([event.track]);
 
       let audio = remoteAudios.current.get(peerSocketId);
@@ -89,6 +98,7 @@ export function useWebRTC(roomId: string | undefined) {
         audio = document.createElement('audio');
         audio.id = `remote-audio-${peerSocketId}`;
         audio.autoplay = true;
+        audio.volume = 1.0;
         (audio as any).playsInline = true;
         audio.style.display = 'none';
         document.body.appendChild(audio);
@@ -98,20 +108,23 @@ export function useWebRTC(roomId: string | undefined) {
       audio.srcObject = stream;
       audio.muted = isDeafened;
 
-      audio.play().catch((err) => {
-        console.warn(`[WebRTC] Autoplay waiting for user gesture for ${peerSocketId}:`, err);
-        const unlock = () => {
-          audio?.play().catch(() => {});
-          window.removeEventListener('click', unlock);
-          window.removeEventListener('touchstart', unlock);
-        };
-        window.addEventListener('click', unlock, { once: true });
-        window.addEventListener('touchstart', unlock, { once: true });
-      });
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((err) => {
+          console.warn(`[WebRTC] Autoplay waiting for interaction on ${peerSocketId}:`, err);
+          const resume = () => {
+            audio?.play().catch(() => {});
+            window.removeEventListener('click', resume);
+            window.removeEventListener('touchstart', resume);
+          };
+          window.addEventListener('click', resume, { once: true });
+          window.addEventListener('touchstart', resume, { once: true });
+        });
+      }
     };
 
     pc.onconnectionstatechange = () => {
-      console.log(`[WebRTC] Peer ${peerSocketId} connection state:`, pc.connectionState);
+      console.log(`[WebRTC] Peer ${peerSocketId} call state: ${pc.connectionState}`);
       if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
         pc.close();
         peerConnections.current.delete(peerSocketId);
@@ -124,24 +137,27 @@ export function useWebRTC(roomId: string | undefined) {
       }
     };
 
-    // If initiator, create and send offer
+    // If initiator, create and send offer immediately
     if (isInitiator) {
-      pc.createOffer({ offerToReceiveAudio: true })
+      pc.createOffer({
+        offerToReceiveAudio: true,
+        voiceActivityDetection: true,
+      })
         .then((offer) => pc.setLocalDescription(offer))
         .then(() => {
-          console.log(`[WebRTC] Sending offer to ${peerSocketId}`);
+          console.log(`[WebRTC] Sending call offer to ${peerSocketId}`);
           getSocket().emit('rtc:offer', {
             to: peerSocketId,
             offer: pc.localDescription,
           });
         })
-        .catch((err) => console.error('[WebRTC] Error creating offer:', err));
+        .catch((err) => console.error('[WebRTC] Error creating call offer:', err));
     }
 
     return pc;
   }, [isDeafened]);
 
-  // ── 2. Speech Detection (VAD) via Web Audio API ──────────────────────────────
+  // ── 2. Speech Detection (VAD for Visual Ring Only - Never Cuts Audio) ───────
   const setupSpeechDetection = useCallback((stream: MediaStream) => {
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -176,7 +192,7 @@ export function useWebRTC(roomId: string | undefined) {
           sum += dataArray[i];
         }
         const average = sum / bufferLength;
-        const isSpeakingNow = average > 16; // Audio threshold for speech
+        const isSpeakingNow = average > 14;
 
         if (isSpeakingNow !== isSpeakingRef.current) {
           isSpeakingRef.current = isSpeakingNow;
@@ -193,7 +209,7 @@ export function useWebRTC(roomId: string | undefined) {
     }
   }, [isMuted, updateParticipantSpeaking, user]);
 
-  // ── 3. Initialize Microphone ────────────────────────────────────────────────
+  // ── 3. Initialize Microphone (Default ON like Phone Calls) ───────────────────
   const initMicrophone = useCallback(async () => {
     setIsConnectingAudio(true);
     try {
@@ -202,30 +218,43 @@ export function useWebRTC(roomId: string | undefined) {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
+          channelCount: 1,
         },
+        video: false,
       });
 
       localStreamRef.current = stream;
       setLocalStream(stream);
 
-      // Apply initial mute state
+      // Default microphone to ON like an incoming phone call
+      setMuted(false);
       stream.getAudioTracks().forEach((track) => {
-        track.enabled = !isMuted;
+        track.enabled = true;
       });
 
-      // If any peer connections were created before mic was ready, add tracks now!
-      peerConnections.current.forEach((pc, peerSocketId) => {
-        stream.getAudioTracks().forEach((track) => {
-          console.log(`[WebRTC] Late-adding audio track to existing peer ${peerSocketId}`);
-          pc.addTrack(track, stream);
+      // Attach track to any existing peer connections
+      const audioTrack = stream.getAudioTracks()[0];
+      if (audioTrack) {
+        peerConnections.current.forEach(async (pc, peerId) => {
+          const transceivers = pc.getTransceivers();
+          const audioTransceiver = transceivers.find(
+            (t) => t.sender.track?.kind === 'audio' || t.receiver.track?.kind === 'audio'
+          );
+          if (audioTransceiver && audioTransceiver.sender) {
+            console.log(`[WebRTC] Attaching mic track to transceiver for ${peerId}`);
+            await audioTransceiver.sender.replaceTrack(audioTrack);
+            audioTransceiver.direction = 'sendrecv';
+          } else {
+            pc.addTrack(audioTrack, stream);
+          }
         });
-      });
+      }
 
       setupSpeechDetection(stream);
       setIsConnectingAudio(false);
       return stream;
     } catch (err: any) {
-      console.warn('[WebRTC] Microphone access denied or not found. Continuing with silent fallback stream.', err);
+      console.warn('[WebRTC] Microphone access denied or not found. Falling back to silent listener mode.', err);
       try {
         const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
         const ctx = new AudioCtx();
@@ -243,67 +272,91 @@ export function useWebRTC(roomId: string | undefined) {
       setIsConnectingAudio(false);
       return null;
     }
-  }, [isMuted, setIsConnectingAudio, setLocalStream, setupSpeechDetection]);
+  }, [setIsConnectingAudio, setLocalStream, setMuted, setupSpeechDetection]);
 
   // ── 4. WebRTC Signaling Listeners ───────────────────────────────────────────
   useEffect(() => {
     if (!roomId) return;
     const socket = getSocket();
 
-    // Start mic then join room
+    // Start full-duplex mic then join room
     initMicrophone().then((_stream) => {
       socket.emit('room:join', { roomId });
     });
 
     // Existing peers received upon joining
     const handlePeers = (data: { peers: Array<{ socketId: string }> }) => {
-      console.log('[WebRTC] Existing room peers received:', data.peers);
+      console.log('[WebRTC] Active participants in room:', data.peers);
       data.peers.forEach((peer) => {
-        createPeerConnection(peer.socketId, true); // new joiner initiates offer to all existing peers
+        createPeerConnection(peer.socketId, true); // new joiner calls existing participants
       });
     };
 
     // A new peer joined the room
     const handlePeerJoined = (data: { socketId: string; displayName?: string }) => {
-      console.log('[WebRTC] Another peer joined room:', data.socketId, data.displayName);
-      createPeerConnection(data.socketId, false); // existing peers wait for new joiner's offer
+      console.log('[WebRTC] New participant joined call:', data.socketId, data.displayName);
+      createPeerConnection(data.socketId, false); // existing participants prepare for call offer
     };
 
-    // Received RTC Offer
+    // Received RTC Offer from incoming caller
     const handleOffer = async (data: { from: string; offer: RTCSessionDescriptionInit }) => {
-      console.log('[WebRTC] Received offer from:', data.from);
+      console.log('[WebRTC] 📥 Received call offer from:', data.from);
       let pc = peerConnections.current.get(data.from);
       if (!pc) {
         pc = createPeerConnection(data.from, false);
       }
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-        // Flush any candidates that arrived before this offer was processed
+        // Flush any candidates buffered before this offer arrived
         await flushCandidates(data.from, pc);
+
+        // Crucial for phone call full-duplex:
+        // Ensure our local mic track is attached to the transceiver sending back to the caller
+        if (localStreamRef.current) {
+          const myAudioTrack = localStreamRef.current.getAudioTracks()[0];
+          if (myAudioTrack) {
+            const transceivers = pc.getTransceivers();
+            const audioTransceiver = transceivers.find(
+              (t) => t.receiver.track?.kind === 'audio' || t.sender.track?.kind === 'audio'
+            );
+            if (audioTransceiver && audioTransceiver.sender) {
+              await audioTransceiver.sender.replaceTrack(myAudioTrack);
+              audioTransceiver.direction = 'sendrecv';
+            } else {
+              const senders = pc.getSenders();
+              const audioSender = senders.find((s) => s.track?.kind === 'audio');
+              if (audioSender) {
+                await audioSender.replaceTrack(myAudioTrack);
+              } else {
+                pc.addTrack(myAudioTrack, localStreamRef.current);
+              }
+            }
+          }
+        }
 
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
-        console.log('[WebRTC] Sending answer back to:', data.from);
+        console.log('[WebRTC] 📤 Sending call answer back to:', data.from);
         socket.emit('rtc:answer', {
           to: data.from,
           answer: pc.localDescription,
         });
       } catch (err) {
-        console.error('[WebRTC] Error handling offer:', err);
+        console.error('[WebRTC] Error handling call offer:', err);
       }
     };
 
     // Received RTC Answer
     const handleAnswer = async (data: { from: string; answer: RTCSessionDescriptionInit }) => {
-      console.log('[WebRTC] Received answer from:', data.from);
+      console.log('[WebRTC] 📥 Received call answer from:', data.from);
       const pc = peerConnections.current.get(data.from);
       if (pc) {
         try {
           await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-          // Flush any candidates that arrived before answer was set
           await flushCandidates(data.from, pc);
+          console.log(`[WebRTC] 🟢 Two-way full-duplex call connected with ${data.from}`);
         } catch (err) {
-          console.error('[WebRTC] Error handling answer:', err);
+          console.error('[WebRTC] Error handling call answer:', err);
         }
       }
     };
@@ -312,7 +365,6 @@ export function useWebRTC(roomId: string | undefined) {
     const handleIceCandidate = async (data: { from: string; candidate: RTCIceCandidateInit }) => {
       const pc = peerConnections.current.get(data.from);
       if (!pc || !pc.remoteDescription || !pc.remoteDescription.type) {
-        // Queue candidate until remote description is set
         const q = candidateQueue.current.get(data.from) || [];
         q.push(data.candidate);
         candidateQueue.current.set(data.from, q);
@@ -327,7 +379,7 @@ export function useWebRTC(roomId: string | undefined) {
 
     // Peer left
     const handlePeerLeft = (data: { socketId: string }) => {
-      console.log('[WebRTC] Peer left room:', data.socketId);
+      console.log('[WebRTC] Peer hung up / left:', data.socketId);
       const pc = peerConnections.current.get(data.socketId);
       if (pc) {
         pc.close();
@@ -352,14 +404,19 @@ export function useWebRTC(roomId: string | undefined) {
       updateParticipantSpeaking(data.uid, data.isSpeaking);
     };
 
-    // Force mute by host
-    const handleForceMute = () => {
-      useRoomStore.getState().setMuted(true);
-      if (localStreamRef.current) {
-        localStreamRef.current.getAudioTracks().forEach((t) => (t.enabled = false));
+    // Global listener to ensure audio context and remote audios stay unmuted on mobile gesture
+    const ensureAudioActive = () => {
+      if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+        audioContextRef.current.resume().catch(() => {});
       }
-      socket.emit('audio:mute-toggle', { isMuted: true });
+      remoteAudios.current.forEach((audio) => {
+        if (audio.paused) {
+          audio.play().catch(() => {});
+        }
+      });
     };
+    window.addEventListener('click', ensureAudioActive);
+    window.addEventListener('touchstart', ensureAudioActive);
 
     socket.on('room:peers', handlePeers);
     socket.on('room:peer-joined', handlePeerJoined);
@@ -369,9 +426,10 @@ export function useWebRTC(roomId: string | undefined) {
     socket.on('rtc:ice-candidate', handleIceCandidate);
     socket.on('audio:peer-mute', handlePeerMute);
     socket.on('audio:peer-speaking', handlePeerSpeaking);
-    socket.on('mod:force-mute', handleForceMute);
 
     return () => {
+      window.removeEventListener('click', ensureAudioActive);
+      window.removeEventListener('touchstart', ensureAudioActive);
       socket.off('room:peers', handlePeers);
       socket.off('room:peer-joined', handlePeerJoined);
       socket.off('room:peer-left', handlePeerLeft);
@@ -380,7 +438,6 @@ export function useWebRTC(roomId: string | undefined) {
       socket.off('rtc:ice-candidate', handleIceCandidate);
       socket.off('audio:peer-mute', handlePeerMute);
       socket.off('audio:peer-speaking', handlePeerSpeaking);
-      socket.off('mod:force-mute', handleForceMute);
 
       if (speechIntervalRef.current) {
         clearInterval(speechIntervalRef.current);

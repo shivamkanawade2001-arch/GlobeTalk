@@ -8,7 +8,11 @@ const ICE_SERVERS: RTCConfiguration = {
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+    { urls: 'stun:global.stun.twilio.com:3478' },
   ],
+  iceCandidatePoolSize: 10,
 };
 
 export function useWebRTC(roomId: string | undefined) {
@@ -24,11 +28,28 @@ export function useWebRTC(roomId: string | undefined) {
 
   const peerConnections = useRef<Map<string, RTCPeerConnection>>(new Map());
   const remoteAudios = useRef<Map<string, HTMLAudioElement>>(new Map());
+  const candidateQueue = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const speechIntervalRef = useRef<number | null>(null);
   const isSpeakingRef = useRef<boolean>(false);
+
+  // Helper to flush queued ICE candidates once remoteDescription is set
+  const flushCandidates = useCallback(async (peerSocketId: string, pc: RTCPeerConnection) => {
+    const queued = candidateQueue.current.get(peerSocketId) || [];
+    if (queued.length > 0) {
+      console.log(`[WebRTC] Flushing ${queued.length} queued ICE candidates for ${peerSocketId}`);
+      for (const candidate of queued) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (e) {
+          console.warn('[WebRTC] Error adding queued ICE candidate:', e);
+        }
+      }
+      candidateQueue.current.delete(peerSocketId);
+    }
+  }, []);
 
   // ── 1. Create Peer Connection ───────────────────────────────────────────────
   const createPeerConnection = useCallback((peerSocketId: string, isInitiator: boolean) => {
@@ -36,12 +57,14 @@ export function useWebRTC(roomId: string | undefined) {
       return peerConnections.current.get(peerSocketId)!;
     }
 
+    console.log(`[WebRTC] Creating peer connection with ${peerSocketId} (initiator: ${isInitiator})`);
     const pc = new RTCPeerConnection(ICE_SERVERS);
     peerConnections.current.set(peerSocketId, pc);
 
     // Add local tracks if available
     if (localStreamRef.current) {
       localStreamRef.current.getAudioTracks().forEach((track) => {
+        console.log(`[WebRTC] Adding local track to ${peerSocketId}, enabled: ${track.enabled}`);
         pc.addTrack(track, localStreamRef.current!);
       });
     }
@@ -58,25 +81,44 @@ export function useWebRTC(roomId: string | undefined) {
 
     // Handle remote track
     pc.ontrack = (event) => {
-      console.log(`[WebRTC] Received remote track from ${peerSocketId}`);
+      console.log(`[WebRTC] 🔊 Received remote track from ${peerSocketId}`, event);
+      const stream = event.streams && event.streams[0] ? event.streams[0] : new MediaStream([event.track]);
+
       let audio = remoteAudios.current.get(peerSocketId);
       if (!audio) {
-        audio = new Audio();
+        audio = document.createElement('audio');
+        audio.id = `remote-audio-${peerSocketId}`;
         audio.autoplay = true;
+        (audio as any).playsInline = true;
+        audio.style.display = 'none';
+        document.body.appendChild(audio);
         remoteAudios.current.set(peerSocketId, audio);
       }
-      audio.srcObject = event.streams[0];
+
+      audio.srcObject = stream;
       audio.muted = isDeafened;
+
+      audio.play().catch((err) => {
+        console.warn(`[WebRTC] Autoplay waiting for user gesture for ${peerSocketId}:`, err);
+        const unlock = () => {
+          audio?.play().catch(() => {});
+          window.removeEventListener('click', unlock);
+          window.removeEventListener('touchstart', unlock);
+        };
+        window.addEventListener('click', unlock, { once: true });
+        window.addEventListener('touchstart', unlock, { once: true });
+      });
     };
 
     pc.onconnectionstatechange = () => {
-      console.log(`[WebRTC] Peer ${peerSocketId} state:`, pc.connectionState);
+      console.log(`[WebRTC] Peer ${peerSocketId} connection state:`, pc.connectionState);
       if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
         pc.close();
         peerConnections.current.delete(peerSocketId);
         const audio = remoteAudios.current.get(peerSocketId);
         if (audio) {
           audio.srcObject = null;
+          audio.remove();
           remoteAudios.current.delete(peerSocketId);
         }
       }
@@ -87,6 +129,7 @@ export function useWebRTC(roomId: string | undefined) {
       pc.createOffer({ offerToReceiveAudio: true })
         .then((offer) => pc.setLocalDescription(offer))
         .then(() => {
+          console.log(`[WebRTC] Sending offer to ${peerSocketId}`);
           getSocket().emit('rtc:offer', {
             to: peerSocketId,
             offer: pc.localDescription,
@@ -133,7 +176,7 @@ export function useWebRTC(roomId: string | undefined) {
           sum += dataArray[i];
         }
         const average = sum / bufferLength;
-        const isSpeakingNow = average > 18; // Audio threshold for speech
+        const isSpeakingNow = average > 16; // Audio threshold for speech
 
         if (isSpeakingNow !== isSpeakingRef.current) {
           isSpeakingRef.current = isSpeakingNow;
@@ -170,12 +213,19 @@ export function useWebRTC(roomId: string | undefined) {
         track.enabled = !isMuted;
       });
 
+      // If any peer connections were created before mic was ready, add tracks now!
+      peerConnections.current.forEach((pc, peerSocketId) => {
+        stream.getAudioTracks().forEach((track) => {
+          console.log(`[WebRTC] Late-adding audio track to existing peer ${peerSocketId}`);
+          pc.addTrack(track, stream);
+        });
+      });
+
       setupSpeechDetection(stream);
       setIsConnectingAudio(false);
       return stream;
     } catch (err: any) {
       console.warn('[WebRTC] Microphone access denied or not found. Continuing with silent fallback stream.', err);
-      // Fallback: create silent audio track so user can still join and listen without microphone
       try {
         const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
         const ctx = new AudioCtx();
@@ -200,23 +250,23 @@ export function useWebRTC(roomId: string | undefined) {
     if (!roomId) return;
     const socket = getSocket();
 
-    // Start mic
+    // Start mic then join room
     initMicrophone().then((_stream) => {
       socket.emit('room:join', { roomId });
     });
 
     // Existing peers received upon joining
     const handlePeers = (data: { peers: Array<{ socketId: string }> }) => {
-      console.log('[WebRTC] Room peers received:', data.peers);
+      console.log('[WebRTC] Existing room peers received:', data.peers);
       data.peers.forEach((peer) => {
-        createPeerConnection(peer.socketId, true); // this client initiates to existing peers
+        createPeerConnection(peer.socketId, true); // new joiner initiates offer to all existing peers
       });
     };
 
     // A new peer joined the room
-    const handlePeerJoined = (data: { socketId: string; displayName: string }) => {
-      console.log('[WebRTC] Peer joined:', data.displayName);
-      createPeerConnection(data.socketId, false); // wait for their offer
+    const handlePeerJoined = (data: { socketId: string; displayName?: string }) => {
+      console.log('[WebRTC] Another peer joined room:', data.socketId, data.displayName);
+      createPeerConnection(data.socketId, false); // existing peers wait for new joiner's offer
     };
 
     // Received RTC Offer
@@ -228,8 +278,12 @@ export function useWebRTC(roomId: string | undefined) {
       }
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+        // Flush any candidates that arrived before this offer was processed
+        await flushCandidates(data.from, pc);
+
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
+        console.log('[WebRTC] Sending answer back to:', data.from);
         socket.emit('rtc:answer', {
           to: data.from,
           answer: pc.localDescription,
@@ -246,6 +300,8 @@ export function useWebRTC(roomId: string | undefined) {
       if (pc) {
         try {
           await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+          // Flush any candidates that arrived before answer was set
+          await flushCandidates(data.from, pc);
         } catch (err) {
           console.error('[WebRTC] Error handling answer:', err);
         }
@@ -255,17 +311,23 @@ export function useWebRTC(roomId: string | undefined) {
     // Received ICE Candidate
     const handleIceCandidate = async (data: { from: string; candidate: RTCIceCandidateInit }) => {
       const pc = peerConnections.current.get(data.from);
-      if (pc && data.candidate) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-        } catch (err) {
-          console.error('[WebRTC] Error adding ICE candidate:', err);
-        }
+      if (!pc || !pc.remoteDescription || !pc.remoteDescription.type) {
+        // Queue candidate until remote description is set
+        const q = candidateQueue.current.get(data.from) || [];
+        q.push(data.candidate);
+        candidateQueue.current.set(data.from, q);
+        return;
+      }
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+      } catch (err) {
+        console.error('[WebRTC] Error adding ICE candidate:', err);
       }
     };
 
     // Peer left
     const handlePeerLeft = (data: { socketId: string }) => {
+      console.log('[WebRTC] Peer left room:', data.socketId);
       const pc = peerConnections.current.get(data.socketId);
       if (pc) {
         pc.close();
@@ -274,8 +336,10 @@ export function useWebRTC(roomId: string | undefined) {
       const audio = remoteAudios.current.get(data.socketId);
       if (audio) {
         audio.srcObject = null;
+        audio.remove();
         remoteAudios.current.delete(data.socketId);
       }
+      candidateQueue.current.delete(data.socketId);
     };
 
     // Peer mute changes
@@ -318,37 +382,35 @@ export function useWebRTC(roomId: string | undefined) {
       socket.off('audio:peer-speaking', handlePeerSpeaking);
       socket.off('mod:force-mute', handleForceMute);
 
-      // Stop speech interval
       if (speechIntervalRef.current) {
         clearInterval(speechIntervalRef.current);
       }
 
-      // Close AudioContext
       if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
         audioContextRef.current.close().catch(() => {});
       }
 
-      // Stop local tracks
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((track) => track.stop());
         localStreamRef.current = null;
       }
       setLocalStream(null);
 
-      // Close all peer connections
       peerConnections.current.forEach((pc) => pc.close());
       peerConnections.current.clear();
 
-      // Clean up remote audios
       remoteAudios.current.forEach((audio) => {
         audio.srcObject = null;
+        audio.remove();
       });
       remoteAudios.current.clear();
+      candidateQueue.current.clear();
 
       socket.emit('room:leave');
     };
   }, [
     createPeerConnection,
+    flushCandidates,
     initMicrophone,
     roomId,
     setLocalStream,

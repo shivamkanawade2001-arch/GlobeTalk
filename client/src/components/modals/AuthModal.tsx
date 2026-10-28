@@ -210,12 +210,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
         {/* Modal Header */}
         <div className="text-center mb-6">
-          <div className="inline-flex p-3 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 text-indigo-400 mb-3 shadow-inner">
+          <div className="inline-flex p-3 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 mb-3 shadow-inner">
             <Globe className="w-7 h-7" />
           </div>
           <h2 className="text-2xl font-bold text-white tracking-tight">Welcome to GlobeTalk</h2>
-          <p className="text-xs text-white/60 mt-1 max-w-xs mx-auto">
-            The 24/7 Virtual Language Cafe. Drop into live voice practice with native speakers worldwide.
+          <p className="text-xs text-white/70 mt-1 max-w-xs mx-auto">
+            Free Spoken English & Language Practice for Graduates and Learners Worldwide.
           </p>
         </div>
 
